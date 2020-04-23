@@ -1,4 +1,5 @@
 #include "logger.hpp"
+#include <climits>
 
 using namespace std;
 
@@ -10,9 +11,64 @@ logger::logger() {
     m_lg.m_size = 1024 * 1024;
 }
 
+static bool _is_dir_exist(const char *dir) {
+    if (!dir)
+        return false;
+
+    struct stat st;
+    if (lstat(dir, &st))
+        return false;
+
+    return S_ISDIR(st.st_mode);
+}
+
+static bool _create_dir(const char *dir, mode_t mode) {
+    if (!dir)
+        return false;
+
+    char dir_buf[PATH_MAX] = {0};
+    char *start = dir_buf;
+    char ch = 0;
+
+    if (!strchr(dir, '/'))
+        return false;
+
+    snprintf(dir_buf, sizeof(dir_buf), "%s/", dir);
+
+    while ((start = strchr(start, '/'))) {
+        ch = *(start + 1);
+        *(start + 1) = '\0';
+        if (_is_dir_exist(dir_buf))
+            goto next;
+
+        if (-1 == mkdir(dir_buf, mode)) {
+            printf("mkdir %s error, errno: %d - %s\n", dir_buf, errno,
+                   strerror(errno));
+            return false;
+        }
+
+    next:
+        *(start + 1) = ch;
+        start++;
+    }
+    return true;
+}
+
 void logger::set_filepath(string filepath) noexcept {
+    const char *ptr = nullptr, *start = filepath.c_str();
+    char path[PATH_MAX] = {0};
+    size_t len = 0;
+
     std::lock_guard<std::mutex> lk(m_lg.m_lock);
     m_lg.m_filepath = filepath;
+
+    if (ptr = strrchr(const_cast<char *>(start), '/'), ptr) {
+        len = (size_t)(ptr - start);
+        memcpy(path, start, len);
+    }
+
+    if (!_is_dir_exist(path))
+        _create_dir(path, 0755);
 }
 
 void logger::set_size(int size) noexcept {
@@ -52,7 +108,7 @@ string logger::_levelc(int level) noexcept {
 #ifdef _TESTING
 
 void logger::test() noexcept {
-    const char *filepath = "./logger.log";
+    const char *filepath = "./a/logger.log";
     /* logger::set_filepath(filepath); */
     logger::set_level(LOGGER_LV_ALL);
     logger::set_size(1024);
